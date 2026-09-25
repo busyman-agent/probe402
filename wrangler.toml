@@ -1,0 +1,14 @@
+name = "busyman-probe"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Replay guard: block hash -> times served. Create with `wrangler kv namespace create PAID`
+# and paste the id below (local dev needs no id).
+[[kv_namespaces]]
+binding = "PAID"
+id = "<your-kv-namespace-id>"
+
+[vars]
+PAY_TO = "nano_1cniy53izwradscmqznu9bxpi6h73dfdcy6abirb7rnuxj7dcjqp5q5wjrga"
+PRICE_RAW = "1000000000000000000000000000"   # 0.001 XNO (1 XNO = 1e30 raw)
+DOCS_URL = "https://busyman-probe.probe402.workers.dev/"
