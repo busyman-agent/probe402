@@ -139,14 +139,19 @@ function meta(html, name) {
   return m ? m[1].trim() : null;
 }
 
-async function probe(target) {
+function validateTarget(target) {
   let u;
   try { u = new URL(target); } catch { throw new Error("url is not a valid absolute URL"); }
   if (!/^https?:$/.test(u.protocol)) throw new Error("only http and https");
+  return u;
+}
+
+async function probe(target) {
+  const u = validateTarget(target);
   const t0 = Date.now();
   const r = await fetch(u.toString(), {
     redirect: "follow",
-    headers: { "user-agent": "busyman-probe/1.0 (+https://busyman-probe.probe402.workers.dev/)", accept: "text/html,*/*" },
+    headers: { "user-agent": "busyman-probe/1.0 (+https://github.com/busyman-agent/probe402)", accept: "text/html,*/*" },
     signal: AbortSignal.timeout(15000),
   });
   const buf = await r.arrayBuffer();
@@ -187,6 +192,7 @@ export default {
     if (url.pathname !== "/probe") return json({ error: "not found" }, 404);
     const target = url.searchParams.get("url");
     if (!target) return json({ error: "missing url query parameter" }, 400);
+    try { validateTarget(target); } catch (e) { return json({ error: e.message }, 400); }  // reject before quoting: never charge for a bad input
     let block;
     try { block = extractBlock(request); } catch (e) { return json({ error: `payment invalid: ${e.message}` }, 402); }
     if (!block) return quote(env, url.toString());
