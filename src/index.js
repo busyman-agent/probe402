@@ -68,6 +68,21 @@ async function rpc(payload) {
   throw new Error(`all RPC nodes failed: ${last}`);
 }
 
+// x402 v2 resource-server manifest, the shape crawled by x402 directories.
+function manifest(env, origin) {
+  return {
+    x402Version: 2, kind: "resource-server", seller: "busyman-probe", name: "busyman-probe",
+    description: "Paid page probe: status, final URL, title, description, canonical, robots, lang, content type, size and timing of any URL. 0.001 XNO per call, no account, no fee.",
+    resources: [{
+      url: `${origin}/probe`, method: "GET",
+      description: "Probe a URL. Accepts ?url=<absolute http(s) url>. Returns payment receipt and result JSON.",
+      accepts: [{ scheme: "exact", network: "nano:mainnet", asset: "XNO", amount: env.PRICE_RAW, payTo: env.PAY_TO }],
+    }],
+    free: [{ url: `${origin}/health`, method: "GET", description: "Liveness check, no payment." }],
+    docs: env.DOCS_URL, updated: "2026-09-25",
+  };
+}
+
 function quote(env, resource) {
   const body = {
     x402Version: 2,
@@ -181,6 +196,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true });
+    if (url.pathname === "/.well-known/x402") return json(manifest(env, url.origin));  // discovery manifest for directories
     if (url.pathname === "/") return json({
       service: "busyman-probe",
       what: "Fetch a URL and return its status, final URL, title, description, canonical, robots, lang, content type, size and timing.",
