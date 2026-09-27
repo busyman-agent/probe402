@@ -2,6 +2,7 @@
 //
 // GET /            free: this description as JSON
 // GET /health      free: {"ok":true}
+// GET /selfcheck   free: {"ok":true,"rpc_ok":true,...} when the payment-check RPC path answers, 503 otherwise
 // GET /probe?url=  paid: fetch the URL and return status, final URL, title,
 //                  description, canonical, robots, lang, content type, bytes, ms
 //
@@ -78,7 +79,8 @@ function manifest(env, origin) {
       description: "Probe a URL. Accepts ?url=<absolute http(s) url>. Returns payment receipt and result JSON.",
       accepts: [{ scheme: "exact", network: "nano:mainnet", asset: "XNO", amount: env.PRICE_RAW, payTo: env.PAY_TO }],
     }],
-    free: [{ url: `${origin}/health`, method: "GET", description: "Liveness check, no payment." }],
+    free: [{ url: `${origin}/health`, method: "GET", description: "Liveness check, no payment." },
+           { url: `${origin}/selfcheck`, method: "GET", description: "Payment-check RPC path check, 503 when no node answers." }],
     docs: env.DOCS_URL, updated: "2026-09-27",
   };
 }
@@ -210,6 +212,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true });
+    if (url.pathname === "/selfcheck") {  // free: proves the payment-check RPC path works (block_count on the first node that answers)
+      const t0 = Date.now();
+      try { const r = await rpc({ action: "block_count" }); return json({ ok: true, rpc_ok: true, ledger_blocks: r.count, ms: Date.now() - t0 }); }
+      catch (e) { return json({ ok: false, rpc_ok: false, error: e.message, ms: Date.now() - t0 }, 503); }
+    }
     if (url.pathname === "/.well-known/x402") return json(manifest(env, url.origin));  // discovery manifest for directories
     if (url.pathname === "/") return json({
       service: "busyman-probe",
