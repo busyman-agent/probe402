@@ -79,7 +79,7 @@ function manifest(env, origin) {
       accepts: [{ scheme: "exact", network: "nano:mainnet", asset: "XNO", amount: env.PRICE_RAW, payTo: env.PAY_TO }],
     }],
     free: [{ url: `${origin}/health`, method: "GET", description: "Liveness check, no payment." }],
-    docs: env.DOCS_URL, updated: "2026-09-25",
+    docs: env.DOCS_URL, updated: "2026-09-27",
   };
 }
 
@@ -114,20 +114,34 @@ function extractBlock(request) {
   } catch { throw new Error("unparseable payment header"); }
 }
 
-// Broadcast, then confirm on the ledger. Returns {hash, payer, replay}.
+// Find this send in the ledger if it is already there (replay, or a client that retried
+// after a lost reply): the successor of block.previous, checked field by field. Nodes
+// reject re-broadcasts with node-specific errors, so process() cannot tell us.
+async function findOnLedger(block, ourPk) {
+  const prev = String(block.previous || "").toUpperCase();
+  if (!/[1-9A-F]/.test(prev)) return null;  // first block of a fresh account has no successor path
+  let succ;
+  try { succ = await rpc({ action: "successors", block: prev, count: "2" }); } catch { return null; }
+  const hash = (succ.blocks || [])[1];
+  if (!hash) return null;
+  const info = await rpc({ action: "block_info", json_block: "true", hash });
+  const c = info.contents || {};
+  const same = c.account === block.account && String(c.link).toUpperCase() === ourPk
+    && String(c.balance) === String(block.balance);
+  return same ? String(hash).toUpperCase() : null;
+}
+
+// Confirm on the ledger (broadcasting first when the block is new). Returns {hash, payer, replay}.
 async function settle(env, block) {
   const ourPk = addressToPk(env.PAY_TO);
   if (String(block.link).toUpperCase() !== ourPk) throw new Error("block.link does not pay this server");
-  const proc = await rpc({ action: "process", json_block: "true", subtype: "send", block });
-  let hash = proc.hash ? String(proc.hash).toUpperCase() : null;
+  let hash = await findOnLedger(block, ourPk);
   if (!hash) {
-    // "Old block": the client re-presents a block already in the ledger. Find it.
-    const hist = await rpc({ action: "account_history", account: block.account, count: "10", raw: "true" });
-    const hit = (hist.history || []).find(h =>
-      String(h.link || "").toUpperCase() === ourPk && String(h.balance) === String(block.balance)
-      && String(h.previous || "").toUpperCase() === String(block.previous).toUpperCase());
-    if (!hit) throw new Error(`payment not found on ledger (${proc.error || "no hash"})`);
-    hash = String(hit.hash).toUpperCase();
+    let proc;
+    try { proc = await rpc({ action: "process", json_block: "true", subtype: "send", block }); }
+    catch (e) { proc = { error: e.message }; }
+    hash = proc.hash ? String(proc.hash).toUpperCase() : await findOnLedger(block, ourPk);
+    if (!hash) throw new Error(`payment not found on ledger (${proc.error || "no hash"})`);
   }
   let info = null;
   for (let i = 0; i < 16; i++) {
@@ -141,7 +155,7 @@ async function settle(env, block) {
   if (String(info.contents.link).toUpperCase() !== ourPk) throw new Error("confirmed block does not pay this server");
   const ts = Number(info.local_timestamp || 0);
   const served = Number((await env.PAID.get(hash)) || 0);
-  if (served > 0 && ts && Date.now() / 1000 - ts > REPLAY_WINDOW_S) throw new Error("payment already used");
+  if (ts && Date.now() / 1000 - ts > REPLAY_WINDOW_S) throw new Error("payment expired: block older than 15 minutes");
   if (served >= REPLAY_MAX) throw new Error("payment already used");
   await env.PAID.put(hash, String(served + 1), { expirationTtl: 86400 });
   return { hash, payer: info.contents.account, replay: served > 0 };
