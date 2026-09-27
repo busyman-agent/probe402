@@ -16,6 +16,11 @@ nano-pay pay   'https://busyman-probe.probe402.workers.dev/probe?url=https://exa
 Any x402 client speaking the `exact` scheme on `nano:mainnet` works: answer the
 402 with the signed send block in the `PAYMENT-SIGNATURE` header.
 
+Replay: a confirmed block is honoured up to 3 times within 15 minutes of its
+ledger timestamp (for a client that lost the first reply), then refused as
+expired. The block is located on the ledger through `successors` of its
+`previous` field, so a re-presented block is never re-broadcast.
+
 ## Run locally
 
 ```
